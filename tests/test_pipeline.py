@@ -393,6 +393,38 @@ def test_lump_sum_loan_payment_is_interest_only():
     assert "만기 일시상환" in f.prompt_block()
 
 
+def test_repayment_structure_field_controls_lump_sum_without_note_keyword():
+    """상환구조는 유의사항 문자열이 아니라 구조화 필드로 판정해야 한다."""
+    from fdm.facts import build_fact_pack
+    from fdm.personas.schema import FinanceProfile, Persona
+    from fdm.products.schema import Product
+
+    persona = Persona(
+        persona_id="X-P-LOAN", age=45, occupation="자영업",
+        finance=FinanceProfile(
+            annual_income_manwon=6000, monthly_income_manwon=500,
+            financial_assets_manwon=2000, real_assets_manwon=0,
+            debt_manwon=5000, monthly_debt_service_manwon=80,
+            monthly_surplus_manwon=120, dsr_pct=16.0, income_quintile=3,
+        ),
+    )
+    base = Product(
+        product_id="LN-X", name="상환구조 테스트 대출", category="loan",
+        intr_rate=6.0, intr_rate2=8.0, save_trm_months=12, limit_manwon=4000,
+        risk_notes=["만기에 원금을 한 번에 상환한다"],
+    )
+
+    lump = base.model_copy(update={"repayment_structure": "만기 일시상환"})
+    f_lump = build_fact_pack(lump, persona)
+    assert f_lump.is_lump_sum_repayment is True
+    assert f_lump.payment_max == pytest.approx(20.0, abs=0.1)
+
+    amortized = base.model_copy(update={"repayment_structure": "원리금균등"})
+    f_amortized = build_fact_pack(amortized, persona)
+    assert f_amortized.is_lump_sum_repayment is False
+    assert f_amortized.payment_max > f_lump.payment_max * 10
+
+
 def test_contradiction_screening_drops_hallucinated_concerns():
     """실측된 환각 4건이 계산값으로 기각되는지 확인한다."""
     from fdm.facts import build_fact_pack, screen_concerns
@@ -712,6 +744,16 @@ def test_ensemble_arm_runs_and_flags_disagreement():
     assert oc.n_llm_calls >= 6, "단발 1회 + 디베이트 5회 이상이어야 한다"
     assert oc.concerns, "합쳐진 우려가 있어야 한다"
     assert all("sources" in c for c in oc.concerns)
+
+
+def test_workbench_estimates_ensemble_as_six_calls():
+    """워크벤치 비용 안내도 single+debate 병행 호출 수를 반영해야 한다."""
+    from fdm.services.workbench import estimate_run_cost
+
+    base = dict(n_segments=1, n_seeds=1, personas_per_segment=1, workers=1)
+    assert estimate_run_cost(mode="single", **base)["llm_calls"] == 1
+    assert estimate_run_cost(mode="debate", **base)["llm_calls"] == 5
+    assert estimate_run_cost(mode="ensemble", **base)["llm_calls"] == 6
 
 
 # ------------------------------------------------- 우려 계층 (교차확인 × 심각도)
@@ -1041,6 +1083,60 @@ def test_simulation_path_drops_explanation_concerns():
     sim = simulate_product(product, n_seeds=1, k_personas=1, mode="ensemble")
     types = {c.type for s in sim.segments for c in s.top_concerns}
     assert "explanation_insufficient" not in types
+
+
+def test_simulate_product_passes_situation_to_cases(monkeypatch, personas):
+    """정황 기반 필터를 쓰는 경로에서 simulate_product가 situation을 잃으면 안 된다."""
+    from fdm.eval import simulate as simulate_mod
+    from fdm.eval.confidence import ConsensusResult
+    from fdm.personas.schema import Segment
+
+    seen: list[str] = []
+
+    def fake_run_case(
+        product,
+        persona,
+        *,
+        segment,
+        n_seeds=3,
+        mode="debate",
+        config=None,
+        client=None,
+        exclude_doc_ids=None,
+        situation="",
+    ):
+        seen.append(situation)
+        return ConsensusResult(
+            product_id=product.product_id,
+            product_name=product.name,
+            persona_id=persona.persona_id,
+            segment=segment,
+            n_runs=1,
+            mode=mode,
+            modal_suitability="pass",
+            label_counts={"pass": 1},
+            label_agreement=1.0,
+            intent_mean=70.0,
+            intent_std=0.0,
+            intent_min=70,
+            intent_max=70,
+            confidence=1.0,
+            confidence_level="high",
+            needs_review=False,
+        )
+
+    monkeypatch.setattr(simulate_mod, "run_case", fake_run_case)
+    simulate_mod.simulate_product(
+        load_product("01_youth_step_saving"),
+        segments=[Segment(name="전체")],
+        personas=personas[:1],
+        k_personas=1,
+        n_seeds=1,
+        progress=False,
+        situation="직원이 중도해지 불이익을 설명했다.",
+    )
+
+    assert seen == ["직원이 중도해지 불이익을 설명했다."]
 
 
 # ------------------------------------------------------- 뷰모델 (UI 분리)

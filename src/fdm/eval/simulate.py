@@ -120,6 +120,7 @@ def run_case(
     config: DebateConfig | None = None,
     client: LLMClient | None = None,
     exclude_doc_ids: set[str] | None = None,
+    situation: str = "",
 ) -> ConsensusResult:
     cfg = config or DebateConfig()
     client = client or LLMClient()
@@ -141,6 +142,7 @@ def run_case(
                     client=client,
                     retriever=retriever,
                     exclude_doc_ids=exclude_doc_ids,
+                    situation=situation,
                 )
             )
         except LLMError as e:
@@ -198,6 +200,7 @@ def simulate_product(
     persona_source: PersonaSource = "auto",
     require_real_personas: bool = False,
     progress: bool = True,
+    situation: str = "",
 ) -> SimulationReport:
     from ..config import SETTINGS
 
@@ -230,7 +233,14 @@ def simulate_product(
     def work(job: tuple[Segment, Persona]) -> tuple[str, ConsensusResult]:
         seg, persona = job
         cr = run_case(
-            product, persona, segment=seg.name, n_seeds=n_seeds, mode=mode, config=cfg, client=client
+            product,
+            persona,
+            segment=seg.name,
+            n_seeds=n_seeds,
+            mode=mode,
+            config=cfg,
+            client=client,
+            situation=situation,
         )
         if progress:
             print(
@@ -370,6 +380,7 @@ def sensitivity_analysis(
     personas: list[Persona] | None = None,
     persona_source: PersonaSource = "auto",
     require_real_personas: bool = False,
+    situation: str = "",
 ) -> list[SensitivityRow]:
     rows: list[SensitivityRow] = []
     base = VariantSpec(label="기준안")
@@ -388,6 +399,7 @@ def sensitivity_analysis(
             persona_source=persona_source,
             require_real_personas=require_real_personas,
             progress=False,
+            situation=situation,
         )
         for sr in rep.segments:
             rows.append(

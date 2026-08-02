@@ -48,6 +48,21 @@ def _monthly_payment(principal_manwon: float, annual_rate_pct: float, months: in
     return principal_manwon * r / (1 - (1 + r) ** (-months))
 
 
+def _is_lump_sum_repayment(product: Product) -> bool | None:
+    """대출 상환구조 판정.
+
+    신규 입력은 `repayment_structure` 구조화 필드를 사용한다. `risk_notes` 검사는
+    기존 JSON 자산을 읽기 위한 호환 경로이며, 새 UI 경로의 판정 근거로 기대지 않는다.
+    """
+    if product.category != "loan":
+        return None
+    if product.repayment_structure is not None:
+        return product.repayment_structure == "만기 일시상환"
+    if not product.risk_notes:
+        return None
+    return any("일시상환" in n for n in product.risk_notes)
+
+
 class FactPack(BaseModel):
     """상품 × 페르소나에서 계산된 파생 지표. 모든 금액은 만원 단위."""
 
@@ -214,9 +229,7 @@ def build_fact_pack(product: Product, persona: Persona, *, situation: str = "") 
             else product.intr_rate2 > product.intr_rate
         ),
         has_fees=None if product.fees is None else bool(product.fees),
-        is_lump_sum_repayment=(
-            any("일시상환" in n for n in product.risk_notes) if product.risk_notes else None
-        ),
+        is_lump_sum_repayment=_is_lump_sum_repayment(product),
     )
 
     # 원금보장 여부 — 상품군으로 판정. 대출·카드는 해당 없음(None)

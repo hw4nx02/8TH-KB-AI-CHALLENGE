@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from ..config import PRODUCT_DIR
 
 Category = Literal["saving", "deposit", "loan", "card", "pension", "fund"]
+RepaymentStructure = Literal["원리금균등", "만기 일시상환"]
 
 
 class Clause(BaseModel):
@@ -63,6 +64,10 @@ class Product(BaseModel):
     min_monthly_manwon: int | None = None
     max_monthly_manwon: int | None = None
     limit_manwon: int | None = Field(default=None, description="대출/카드 한도 (만원)")
+    repayment_structure: RepaymentStructure | None = Field(
+        default=None,
+        description="대출 상환구조. None=미기재(모름), 원리금균등/만기 일시상환 중 하나",
+    )
 
     # None = 미기재(모름) / [] = 명시적으로 없음.
     # 이 구분이 없으면 "데이터를 안 채웠다"가 "그런 조건은 없다"로 둔갑한다.
@@ -106,6 +111,9 @@ class Product(BaseModel):
             )
         if self.limit_manwon:
             lines.append(f"- 한도: {self.limit_manwon:,}만원")
+        if self.category == "loan":
+            repay = self.repayment_structure or "상환구조 미기재"
+            lines.append(f"- 상환구조: {repay}")
         if self.preferentials:
             pref_label = {
                 "loan": "금리감면/우대조건",

@@ -113,7 +113,7 @@ PRESET_CONFIGS: dict[str, dict[str, Any]] = {
     },
     "심층 검증": {
         "purpose": "준법/보고서 제출 전 검증",
-        "mode": "debate",
+        "mode": "ensemble",
         "n_seeds": 5,
         "personas_per_segment": 5,
         "workers": 4,
@@ -198,6 +198,8 @@ def validate_product_for_workbench(product: Product) -> list[ProductIssue]:
         issues.append(ProductIssue("warning", f"{label}가 비어 있습니다."))
     if product.category == "loan" and product.intr_rate2 is None:
         issues.append(ProductIssue("warning", "대출 최고금리를 입력하면 고금리 위험 진단이 더 안정적입니다."))
+    if product.category == "loan" and product.repayment_structure is None:
+        issues.append(ProductIssue("warning", "대출 상환구조가 미정입니다. 원리금균등/만기 일시상환 여부를 확인하세요."))
     if product.category == "card" and not product.preferentials:
         issues.append(ProductIssue("warning", "카드 상품은 혜택/실적 조건을 입력해야 오인 가능성을 검증하기 쉽습니다."))
     if product.category in {"pension", "fund"} and not product.risk_notes:
@@ -215,7 +217,7 @@ def estimate_run_cost(
     include_sensitivity: bool = False,
     n_variants: int = 0,
 ) -> dict[str, Any]:
-    turns_per_seed = 5 if mode == "debate" else 1
+    turns_per_seed = {"single": 1, "debate": 5, "ensemble": 6}.get(mode, 1)
     base_cases = max(0, n_segments) * max(0, personas_per_segment)
     base_calls = base_cases * max(1, n_seeds) * turns_per_seed
     sensitivity_calls = 0

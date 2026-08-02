@@ -39,6 +39,12 @@ from fdm.services.workbench import (  # noqa: E402
     segment_profile,
     validate_product_for_workbench,
 )
+from fdm.viewmodel import (  # noqa: E402
+    build_view,
+    case_concern_table,
+    segment_table,
+    tier_legend_table,
+)
 
 st.set_page_config(page_title="FDM Product Workbench", layout="wide")
 
@@ -51,9 +57,23 @@ CATEGORY_LABELS = {
     "fund": "펀드",
 }
 LABEL_TO_CATEGORY = {v: k for k, v in CATEGORY_LABELS.items()}
-MODE_OPTIONS = ["single", "debate"]
+MODE_OPTIONS = ["single", "debate", "ensemble"]
 DEFAULT_PERSONA_SOURCE = "synthetic"
 DEFAULT_PERSONA_LIMIT = 400
+UNKNOWN_STATE = "미정(확인 필요)"
+ABSENT_STATE = "없음(확인함)"
+PRESENT_STATE = "있음(항목 입력)"
+TRI_STATE_OPTIONS = [UNKNOWN_STATE, ABSENT_STATE, PRESENT_STATE]
+RATE_BASIS_OPTIONS = [UNKNOWN_STATE, "고정", "변동"]
+REPAYMENT_OPTIONS = [UNKNOWN_STATE, "원리금균등", "만기 일시상환"]
+ATTAINMENT_PRESETS: dict[str, float | None] = {
+    "미입력": None,
+    "급여이체": 0.6,
+    "자동이체": 0.8,
+    "카드실적": 0.4,
+    "신규고객": 0.9,
+    "직접입력": 0.4,
+}
 RISK_COLORS = {
     "정상": "#2f6f4e",
     "조건 보완 권고": "#b7791f",
@@ -247,6 +267,29 @@ def split_csv(text: str) -> list[str] | None:
     return items or None
 
 
+def tri_state_index(items: list[Any] | None) -> int:
+    if items is None:
+        return TRI_STATE_OPTIONS.index(UNKNOWN_STATE)
+    return TRI_STATE_OPTIONS.index(PRESENT_STATE if items else ABSENT_STATE)
+
+
+def optional_choice(value: str | None, options: list[str]) -> int:
+    if value in options:
+        return options.index(value)
+    return options.index(UNKNOWN_STATE)
+
+
+def choice_or_none(value: str) -> str | None:
+    return None if value == UNKNOWN_STATE else value
+
+
+def attainment_preset_index(base: Preferential | None) -> int:
+    options = list(ATTAINMENT_PRESETS)
+    if base and base.est_attainment_rate is not None:
+        return options.index("직접입력")
+    return options.index("미입력")
+
+
 def issues_panel(product: Product) -> list[str]:
     issues = validate_product_for_workbench(product)
     errors = [i.message for i in issues if i.severity == "error"]
@@ -350,8 +393,10 @@ def product_from_form(template: Product, segment_names: list[str]) -> Product | 
     )
     category = LABEL_TO_CATEGORY[category_label]
     copy = CATEGORY_FORM_COPY[category]
-    template_preferentials = template.preferentials or []
-    template_fees = template.fees or []
+    template_preferentials = template.preferentials
+    template_preferential_items = template.preferentials or []
+    template_fees = template.fees
+    template_fee_items = template.fees or []
 
     summary = st.text_area("상품 요약", value=template.summary, height=90, key="summary")
 
@@ -364,6 +409,7 @@ def product_from_form(template: Product, segment_names: list[str]) -> Product | 
     limit_manwon = None
     rate_basis = template.rate_basis
     intr_rate_type = template.intr_rate_type
+    repayment_structure = template.repayment_structure if category == "loan" else None
 
     if copy["rate1"]:
         r1, r2, r3, r4, r5 = st.columns(5)
@@ -391,12 +437,13 @@ def product_from_form(template: Product, segment_names: list[str]) -> Product | 
             step=1,
             key="save_trm_months",
         )
-        rate_basis = r4.selectbox(
-            "고정/변동",
-            ["고정", "변동"],
-            index=0 if template.rate_basis == "고정" else 1,
+        rate_basis_choice = r4.selectbox(
+            "금리유형",
+            RATE_BASIS_OPTIONS,
+            index=optional_choice(template.rate_basis, RATE_BASIS_OPTIONS),
             key="rate_basis",
         )
+        rate_basis = choice_or_none(rate_basis_choice)
         intr_rate_type = r5.text_input("금리/수익률 유형", value=template.intr_rate_type, key="intr_rate_type")
     else:
         c1, c2 = st.columns(2)
@@ -416,7 +463,7 @@ def product_from_form(template: Product, segment_names: list[str]) -> Product | 
             step=1,
             key="save_trm_months",
         )
-        rate_basis = "고정"
+        rate_basis = None
         intr_rate_type = "혜택형"
         st.caption("카드 상품은 금리 입력 대신 이용 한도, 실적 기간, 혜택/수수료 조건을 중심으로 검증합니다.")
 
@@ -458,65 +505,117 @@ def product_from_form(template: Product, segment_names: list[str]) -> Product | 
                 key="limit_manwon",
             )
 
+    if category == "loan":
+        repayment_choice = st.selectbox(
+            "상환구조",
+            REPAYMENT_OPTIONS,
+            index=optional_choice(template.repayment_structure, REPAYMENT_OPTIONS),
+            key="repayment_structure",
+        )
+        repayment_structure = choice_or_none(repayment_choice)
+
     st.markdown(f"**{copy['condition_title']}**")
-    pref_count = st.number_input(
-        copy["condition_count"],
-        min_value=0,
-        max_value=8,
-        value=max(1, len(template_preferentials)),
-        step=1,
-        key="pref_count",
+    pref_state = st.radio(
+        "우대조건 입력 상태",
+        TRI_STATE_OPTIONS,
+        index=tri_state_index(template_preferentials),
+        horizontal=True,
+        key="pref_state",
     )
-    preferentials: list[Preferential] = []
-    for i in range(int(pref_count)):
-        base = template_preferentials[i] if i < len(template_preferentials) else None
-        p1, p2, p3, p4 = st.columns([1.1, 0.7, 2.4, 0.8])
-        pname = p1.text_input(copy["condition_name"], value=base.name if base else "", key=f"pref_name_{i}")
-        bonus = p2.number_input(
-            copy["condition_bonus"],
-            min_value=0.0,
-            max_value=10.0,
-            value=float(base.rate_bonus_pct if base else 0.0),
-            step=0.1,
-            key=f"pref_bonus_{i}",
+    preferentials: list[Preferential] | None
+    if pref_state == UNKNOWN_STATE:
+        preferentials = None
+    elif pref_state == ABSENT_STATE:
+        preferentials = []
+    else:
+        pref_count = st.number_input(
+            copy["condition_count"],
+            min_value=1,
+            max_value=8,
+            value=max(1, len(template_preferential_items)),
+            step=1,
+            key="pref_count_present",
         )
-        requirement = p3.text_input(copy["condition_req"], value=base.requirement if base else "", key=f"pref_req_{i}")
-        attain = p4.number_input(
-            "추정 달성률",
-            min_value=0.0,
-            max_value=1.0,
-            value=float(base.est_attainment_rate if base and base.est_attainment_rate is not None else 0.4),
-            step=0.05,
-            key=f"pref_attain_{i}",
-        )
-        if pname or requirement:
-            preferentials.append(
-                Preferential(
-                    name=pname or f"{copy['condition_default']} {i + 1}",
-                    rate_bonus_pct=bonus,
-                    requirement=requirement,
-                    est_attainment_rate=attain,
-                )
+        preferentials = []
+        for i in range(int(pref_count)):
+            base = template_preferential_items[i] if i < len(template_preferential_items) else None
+            p1, p2, p3, p4, p5 = st.columns([1.1, 0.7, 2.0, 1.0, 0.8])
+            pname = p1.text_input(copy["condition_name"], value=base.name if base else "", key=f"pref_name_{i}")
+            bonus_min = -10.0 if category == "loan" else 0.0
+            bonus_default = float(base.rate_bonus_pct if base else 0.0)
+            bonus = p2.number_input(
+                copy["condition_bonus"],
+                min_value=bonus_min,
+                max_value=10.0,
+                value=max(bonus_min, min(10.0, bonus_default)),
+                step=0.1,
+                key=f"pref_bonus_{i}",
             )
+            requirement = p3.text_input(copy["condition_req"], value=base.requirement if base else "", key=f"pref_req_{i}")
+            preset = p4.selectbox(
+                "조건 유형",
+                list(ATTAINMENT_PRESETS),
+                index=attainment_preset_index(base),
+                key=f"pref_preset_{i}",
+            )
+            attain = None
+            if preset != "미입력":
+                default_attain = (
+                    base.est_attainment_rate
+                    if base and base.est_attainment_rate is not None
+                    else ATTAINMENT_PRESETS[preset]
+                )
+                attain = p5.number_input(
+                    "추정 달성률",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=float(default_attain if default_attain is not None else 0.4),
+                    step=0.05,
+                    key=f"pref_attain_{i}",
+                )
+            else:
+                p5.caption("미입력")
+            if pname or requirement:
+                preferentials.append(
+                    Preferential(
+                        name=pname or f"{copy['condition_default']} {i + 1}",
+                        rate_bonus_pct=bonus,
+                        requirement=requirement,
+                        est_attainment_rate=attain,
+                    )
+                )
 
     st.markdown(f"**{copy['fee_title']}**")
-    fee_count = st.number_input(
-        "수수료 항목 수",
-        min_value=0,
-        max_value=12,
-        value=len(template_fees),
-        step=1,
-        key="fee_count",
+    fee_state = st.radio(
+        "수수료 입력 상태",
+        TRI_STATE_OPTIONS,
+        index=tri_state_index(template_fees),
+        horizontal=True,
+        key="fee_state",
     )
-    fees: list[Fee] = []
-    for i in range(int(fee_count)):
-        base = template_fees[i] if i < len(template_fees) else None
-        f1, f2, f3 = st.columns([1.0, 1.0, 2.0])
-        fname = f1.text_input("수수료명", value=base.name if base else "", key=f"fee_name_{i}")
-        amount = f2.text_input("금액", value=base.amount if base else "", key=f"fee_amount_{i}")
-        condition = f3.text_area("조건", value=base.condition if base else "", height=90, key=f"fee_condition_{i}")
-        if fname or amount or condition:
-            fees.append(Fee(name=fname or f"수수료 {i + 1}", amount=amount or "별도 고지", condition=condition))
+    fees: list[Fee] | None
+    if fee_state == UNKNOWN_STATE:
+        fees = None
+    elif fee_state == ABSENT_STATE:
+        fees = []
+    else:
+        fee_count = st.number_input(
+            "수수료 항목 수",
+            min_value=1,
+            max_value=12,
+            value=max(1, len(template_fee_items)),
+            step=1,
+            key="fee_count_present",
+        )
+        fees = []
+        for i in range(int(fee_count)):
+            base = template_fee_items[i] if i < len(template_fee_items) else None
+            f1, f2, f3 = st.columns([1.0, 1.0, 2.0])
+            fname = f1.text_input("수수료명", value=base.name if base else "", key=f"fee_name_{i}")
+            amount = f2.text_input("금액", value=base.amount if base else "", key=f"fee_amount_{i}")
+            condition = f3.text_area("조건", value=base.condition if base else "", height=90, key=f"fee_condition_{i}")
+            if fname or amount or condition:
+                fees.append(Fee(name=fname or f"수수료 {i + 1}", amount=amount or "별도 고지", condition=condition))
 
     taxation = st.text_input(copy["tax"], value=template.taxation, key="taxation")
     early_termination = st.text_area(
@@ -575,6 +674,7 @@ def product_from_form(template: Product, segment_names: list[str]) -> Product | 
             min_monthly_manwon=int(min_monthly) if min_monthly else None,
             max_monthly_manwon=int(max_monthly) if max_monthly else None,
             limit_manwon=int(limit_manwon) if limit_manwon else None,
+            repayment_structure=repayment_structure,  # type: ignore[arg-type]
             preferentials=preferentials,
             fees=fees,
             taxation=taxation.strip() or "이자소득세 15.4% 원천징수",
@@ -841,14 +941,14 @@ with tab_product:
             summary="상품 관련 설명을 입력해주세요",
             intr_rate=3.0,
             intr_rate2=4.5,
+            rate_basis=None,
             save_trm_months=12,
             min_monthly_manwon=10,
             max_monthly_manwon=50,
-            preferentials=[
-                Preferential(name="급여이체 우대", rate_bonus_pct=0.5, requirement="당행 계좌로 급여 입금")
-            ],
+            preferentials=None,
+            fees=None,
             early_termination="중도해지 시 우대금리 미적용, 가입기간별 중도해지이율 적용 등",
-            risk_notes=["유의사항을 작성해주세요"],
+            risk_notes=[],
             target_description="상품 설계자가 지정한 타깃 세그먼트",
             target_segments=segment_names[:2],
             clauses=[
@@ -1024,6 +1124,7 @@ with tab_result:
             st.code(run.error_summary, language="text")
     else:
         sim = store.load_simulation_report(run.id)
+        view = build_view(sim)
         df = simulation_dataframe(sim)
         st.subheader("결과 진단 대시보드")
         risk_segments = [s for s in sim.segments if s.verdict_mix.get("fail", 0) or s.verdict_mix.get("warn", 0)]
@@ -1034,95 +1135,140 @@ with tab_result:
         c1.metric("평균 가입의향", f"{df['가입의향'].mean():.1f}" if not df.empty else "-")
         c2.metric("위험 세그먼트", len(risk_segments))
         c3.metric("저신뢰 세그먼트", len(low_segments))
-        c4.metric("가입의향 최고", best.segment if best else "-")
+        c4.metric("조치필요(T1+T2)", view.action_needed)
+        if view.mode_warning:
+            st.warning(view.mode_warning)
+        for col, tier in zip(st.columns(len(view.tier_summary)), view.tier_summary):
+            col.metric(f"{tier.mark} {tier.label}", tier.count)
         if worst:
-            st.caption(f"가입의향 최저 세그먼트: {worst.segment} ({worst.mean_intent}점)")
-        st.dataframe(df, use_container_width=True, hide_index=True)
-
-        if not df.empty:
-            chart = (
-                alt.Chart(df)
-                .mark_bar()
-                .encode(
-                    x=alt.X("세그먼트:N", sort="-y"),
-                    y=alt.Y("가입의향:Q", scale=alt.Scale(domain=[0, 100])),
-                    color=alt.Color(
-                        "상태:N",
-                        scale=alt.Scale(domain=list(RISK_COLORS.keys()), range=list(RISK_COLORS.values())),
-                    ),
-                    tooltip=["세그먼트", "가입의향", "가입률", "신뢰도", "상태"],
-                )
-                .properties(height=280)
+            st.caption(
+                f"가입의향 최고 세그먼트: {best.segment if best else '-'} · "
+                f"최저 세그먼트: {worst.segment} ({worst.mean_intent}점)"
             )
-            st.altair_chart(chart, use_container_width=True)
 
-            mix = df.melt(id_vars=["세그먼트"], value_vars=["pass", "warn", "fail"], var_name="판정", value_name="비율")
-            mix_chart = (
-                alt.Chart(mix)
-                .mark_bar()
-                .encode(
-                    x=alt.X("세그먼트:N"),
-                    y=alt.Y("비율:Q", stack="normalize"),
-                    color=alt.Color("판정:N", scale=alt.Scale(domain=["pass", "warn", "fail"], range=["#2f6f4e", "#b7791f", "#b91c1c"])),
-                    tooltip=["세그먼트", "판정", "비율"],
+        tab_tier_view, tab_summary_view, tab_case_view, tab_raw_view = st.tabs(
+            ["우려 계층", "세그먼트 요약", "케이스 상세", "원본 JSON"]
+        )
+
+        with tab_tier_view:
+            st.markdown(tier_legend_table(view))
+            st.caption(view.caveat)
+            for seg_view in view.segments:
+                st.markdown(
+                    f"### {seg_view.name}  <small>{seg_view.counts_badge}</small>",
+                    unsafe_allow_html=True,
                 )
-                .properties(height=260)
-            )
-            st.altair_chart(mix_chart, use_container_width=True)
+                if not seg_view.has_concerns:
+                    st.caption("구조화된 우려 없음")
+                    continue
+                for group in seg_view.tiers:
+                    if not group.items:
+                        continue
+                    with st.expander(group.heading, expanded=group.expanded):
+                        for concern in group.items:
+                            st.markdown(f"**{concern.type_label}** `{concern.badge}`  \n{concern.statement}")
+                            if concern.anchor:
+                                st.caption(f"근거 · {concern.anchor}")
+                            if concern.verify_with:
+                                st.caption(f"확인방법 · {concern.verify_with}")
+                            st.divider()
 
-        left, right = st.columns(2)
-        with left:
-            st.markdown("**주요 위험요인 Top 5**")
-            risks = top_items([r for s in sim.segments for r in s.top_risks])
-            if risks:
-                for item, count in risks:
-                    st.write(f"- {item} ({count}회)")
-            else:
-                st.caption("집계된 위험요인이 없습니다.")
-        with right:
-            st.markdown("**주요 개선권고 Top 5**")
-            recs = top_items([r for s in sim.segments for r in s.top_recommendations])
-            if recs:
-                for item, count in recs:
-                    st.write(f"- {item} ({count}회)")
-            else:
-                st.caption("집계된 개선권고가 없습니다.")
+        with tab_summary_view:
+            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.markdown(segment_table(view.segments))
 
-        st.divider()
-        st.subheader("케이스 상세 및 근거 트레이스")
-        seg_pick = st.selectbox("세그먼트", [s.segment for s in sim.segments], key="case_segment")
-        seg = next(s for s in sim.segments if s.segment == seg_pick)
-        persona_lookup = {p.persona_id: p for p in ensure_personas(run.persona_source or persona_source, run.settings.get("persona_limit", persona_limit))}
-        for case in seg.cases:
-            with st.expander(
-                f"{case.persona_id} · {case.modal_suitability.upper()} · 의향 {case.intent_mean} · 신뢰도 {case.confidence:.2f}"
-            ):
-                persona = persona_lookup.get(case.persona_id)
-                c1, c2 = st.columns(2)
-                if persona:
-                    c1.markdown("**페르소나 요약**")
-                    c1.write(
-                        f"{persona.age}세 {persona.sex}, {persona.region}, {persona.occupation}, "
-                        f"가구원 {persona.household_size}명"
+            if not df.empty:
+                chart = (
+                    alt.Chart(df)
+                    .mark_bar()
+                    .encode(
+                        x=alt.X("세그먼트:N", sort="-y"),
+                        y=alt.Y("가입의향:Q", scale=alt.Scale(domain=[0, 100])),
+                        color=alt.Color(
+                            "상태:N",
+                            scale=alt.Scale(domain=list(RISK_COLORS.keys()), range=list(RISK_COLORS.values())),
+                        ),
+                        tooltip=["세그먼트", "가입의향", "가입률", "신뢰도", "상태"],
                     )
-                    if persona.finance:
-                        c1.caption(persona.finance.summary())
-                c2.markdown("**판정 안정성**")
-                c2.write(
-                    f"라벨 분포: {case.label_counts}  \n"
-                    f"라벨 합의도: {case.label_agreement:.0%}  \n"
-                    f"의향 범위: {case.intent_min}~{case.intent_max} (표준편차 {case.intent_std})  \n"
-                    f"무근거 발화: {case.ungrounded_turns}건"
+                    .properties(height=280)
                 )
-                st.markdown("**근거**")
-                st.write(case.evidence or "근거 없음")
-                st.markdown("**위험요인**")
-                st.write(case.risks or "위험요인 없음")
-                st.markdown("**개선권고**")
-                st.write(case.recommendations or "개선권고 없음")
-                st.caption("인용 문서 ID: " + (", ".join(case.grounding_doc_ids) or "없음"))
-                st.markdown("**요약 로그 JSON**")
-                st.json(case.model_dump(mode="json"))
+                st.altair_chart(chart, use_container_width=True)
+
+                mix = df.melt(id_vars=["세그먼트"], value_vars=["pass", "warn", "fail"], var_name="판정", value_name="비율")
+                mix_chart = (
+                    alt.Chart(mix)
+                    .mark_bar()
+                    .encode(
+                        x=alt.X("세그먼트:N"),
+                        y=alt.Y("비율:Q", stack="normalize"),
+                        color=alt.Color("판정:N", scale=alt.Scale(domain=["pass", "warn", "fail"], range=["#2f6f4e", "#b7791f", "#b91c1c"])),
+                        tooltip=["세그먼트", "판정", "비율"],
+                    )
+                    .properties(height=260)
+                )
+                st.altair_chart(mix_chart, use_container_width=True)
+
+            left, right = st.columns(2)
+            with left:
+                st.markdown("**주요 위험요인 Top 5**")
+                risks = top_items([r for s in sim.segments for r in s.top_risks])
+                if risks:
+                    for item, count in risks:
+                        st.write(f"- {item} ({count}회)")
+                else:
+                    st.caption("집계된 위험요인이 없습니다.")
+            with right:
+                st.markdown("**주요 개선권고 Top 5**")
+                recs = top_items([r for s in sim.segments for r in s.top_recommendations])
+                if recs:
+                    for item, count in recs:
+                        st.write(f"- {item} ({count}회)")
+                else:
+                    st.caption("집계된 개선권고가 없습니다.")
+
+        with tab_case_view:
+            if not view.segments:
+                st.info("세그먼트 결과가 없습니다.")
+            else:
+                seg_pick = st.selectbox("세그먼트", [s.name for s in view.segments], key="case_segment")
+                seg_view = next(s for s in view.segments if s.name == seg_pick)
+                persona_lookup = {
+                    p.persona_id: p
+                    for p in ensure_personas(
+                        run.persona_source or persona_source,
+                        run.settings.get("persona_limit", persona_limit),
+                    )
+                }
+                for case in seg_view.cases:
+                    with st.expander(case.heading):
+                        persona = persona_lookup.get(case.persona_id)
+                        c1, c2 = st.columns(2)
+                        if persona:
+                            c1.markdown("**페르소나 요약**")
+                            c1.write(
+                                f"{persona.age}세 {persona.sex}, {persona.region}, {persona.occupation}, "
+                                f"가구원 {persona.household_size}명"
+                            )
+                            if persona.finance:
+                                c1.caption(persona.finance.summary())
+                        c2.markdown("**판정 안정성**")
+                        c2.write(
+                            f"라벨 분포: {case.label_counts}  \n"
+                            f"라벨 합의도: {case.label_agreement:.0%}  \n"
+                            f"의향 범위: {case.intent_range}  \n"
+                            f"무근거 발화: {case.ungrounded_turns}건"
+                        )
+                        if case.concerns:
+                            st.markdown("**우려 (계층순)**")
+                            st.markdown(case_concern_table(case))
+                        st.markdown("**근거**")
+                        st.write(case.evidence or "근거 없음")
+                        st.markdown("**개선권고**")
+                        st.write(case.recommendations or "개선권고 없음")
+                        st.caption("인용 문서 ID: " + (", ".join(case.grounding_doc_ids) or "없음"))
+
+        with tab_raw_view:
+            st.json(sim.model_dump(mode="json"))
 
 with tab_scenario:
     run = selected_run(store)

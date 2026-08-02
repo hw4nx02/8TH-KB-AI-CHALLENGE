@@ -10,6 +10,7 @@
   "rate_basis": "변동",
   "save_trm_months": 12,
   "limit_manwon": 5000,
+  "repayment_structure": "만기 일시상환",
   "preferentials": [
     {
       "name": "가맹점 매출이체 감면",
