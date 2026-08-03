@@ -1110,7 +1110,7 @@ def test_ensemble_takes_label_from_single():
 def test_rate_display_rule_needs_a_spread_to_exaggerate():
     """강조할 최고금리가 없으면 '최고금리 위주 표시' 우려는 성립하지 않는다.
 
-    실측(pass12_A): 이 유형은 17번 제기해 1번 맞았고(정밀도 6%) 깨끗한 12건 중
+    벤치마크 측정에서 이 유형은 17번 제기해 1번 맞았고(정밀도 6%) 깨끗한 12건 중
     10건에서 나왔다. 규칙 적용 시 오탐 7개 제거 / 정답 손실 0개.
     """
     from fdm.facts import build_fact_pack, is_contradicted
@@ -1339,7 +1339,7 @@ def test_md_table_renders_without_pandas():
 # --------------------------------------------------------------------------
 # 판매 정황 모순 스크리닝 (FDM_SCREEN_SITUATION) — src/fdm/situation.py
 #
-# 사후 필터라 라벨을 바꾸지 않는다. 사전 손익(rate_A dry-run):
+# 사후 필터라 라벨을 바꾸지 않는다. 사전 손익 대조:
 #   ensemble 오탐 −10 / 정답 손실 0, 깨끗한 건당 2.58 → 1.75, recall 96.7% 불변.
 #
 # 가장 위험한 실패 양식은 **부정문을 긍정으로 읽는 것**이다. 그러면 gold=fail 케이스의
@@ -1428,7 +1428,7 @@ def test_situation_does_not_fire_on_violation_cases():
 
 
 def test_screen_situation_is_off_by_default_and_keeps_labels(personas):
-    """기본 꺼짐 — 기준선(rate_A)과 나란히 두려면 그래야 한다.
+    """기본 꺼짐 — 기존 기준선과 나란히 두려면 그래야 한다.
 
     켜도 라벨은 못 바꾼다. 심판 호출 뒤에 도는 사후 필터라 LLM 입력이 동일하다.
     """

@@ -110,11 +110,11 @@ class Settings:
     # 판매 정황이 "설명했다"고 명시한 항목의 '설명 부족' 주장을 기각한다 (situation.py).
     # 사후 필터라 **라벨을 바꾸지 않는다** — 심판이 판정한 뒤 우려 목록만 손댄다.
     #
-    # 사전 손익(rate_A에 얹어본 dry-run): ensemble 오탐 −10 / 정답 손실 0,
+    # 사전 손익 대조: ensemble 오탐 −10 / 정답 손실 0,
     # 깨끗한 건당 오탐 2.58 → 1.75, 우려 recall 96.7% 불변.
     #
-    # 기본은 끔. `outputs/rate_A.json` 및 기존 측정치와 나란히 비교하려면 꺼진 값이
-    # 기준선이어야 한다. 켜고 한 번 재측정한 뒤 기본값 전환을 판단할 것.
+    # 기본은 끔. 기존 측정치와 나란히 비교하려면 꺼진 값이 기준선이어야 한다.
+    # 켜고 한 번 재측정한 뒤 기본값 전환을 판단할 것.
     screen_situation: bool = field(
         default_factory=lambda: _env("FDM_SCREEN_SITUATION", "0") not in ("0", "false", "False")
     )

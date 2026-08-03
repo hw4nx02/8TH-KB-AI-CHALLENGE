@@ -350,7 +350,7 @@ CONTRADICTION_RULES: dict[str, Callable[[FactPack], bool]] = {
     # 이 유형은 오탐이 가장 심했다 — 17번 제기해 1번 맞았고(정밀도 6%),
     # 깨끗한 12건 중 10건에서 나왔다. 광고 오인은 기본금리와 최고금리의 격차를
     # 강조할 때 생기므로, 우대조건이 없거나 금리 격차가 없으면 성립할 수 없다.
-    # 사전 시뮬레이션(pass12_A): 오탐 7개 제거, **정답 손실 0개**.
+    # 사전 시뮬레이션: 오탐 7개 제거, **정답 손실 0개**.
     # 둘 다 None(모름)이면 판정하지 않는다.
     "rate_display_misleading": lambda f: (
         f.has_preferentials is False or f.has_rate_spread is False

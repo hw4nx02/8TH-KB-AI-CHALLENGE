@@ -216,7 +216,7 @@ def require_nemotron_personas(personas: Iterable[Persona]) -> None:
         sample = ", ".join(sorted(set(bad))[:3])
         raise RuntimeError(
             "Nemotron-Personas-Korea 데이터가 아닌 페르소나가 포함되어 있다. "
-            f"출처 예시: {sample}. Colab에서는 `python scripts/fetch_personas.py --limit 5000` "
+            f"출처 예시: {sample}. 원격 실행 환경에서는 `python scripts/fetch_personas.py --limit 5000` "
             "또는 `--persona-source hf --require-real-personas`로 다시 실행하라."
         )
 
@@ -254,7 +254,7 @@ def load_personas(
             if source == "hf" and not allow_synthetic_fallback:
                 raise RuntimeError(
                     "Nemotron-Personas-Korea를 Hugging Face에서 불러오지 못했다. "
-                    "`uv sync --extra personas` 또는 Colab의 `pip install datasets pyarrow`와 "
+                    "`uv sync --extra personas` 또는 실행 환경의 `pip install datasets pyarrow`와 "
                     "네트워크 권한을 확인하라."
                 ) from e
     if not personas:

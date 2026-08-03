@@ -33,7 +33,7 @@ Mode = Literal["debate", "single", "ensemble"]
 
 # 우려 계층의 T1(즉시 조치)은 "치명 + 교차확인"인데, 교차확인은 단발과 디베이트가
 # **둘 다** 제기해야 성립한다. 따라서 ensemble에서만 T1이 나올 수 있다.
-# 실측(pass12_A, 22건): 라벨은 ensemble=single로 동일(77.3%)하지만
+# 22건 정답셋 기준: 라벨은 ensemble=single로 동일(77.3%)하지만
 # 우려 recall이 80.0% → 96.7%로 오른다. 대신 호출이 1회→6회, 깨끗한 상품
 # 1건당 오탐이 1.83→2.92개로 는다. 그래서 산출물은 반드시 계층순으로 읽혀야 한다.
 RUNNERS = {"debate": run_debate, "single": single_shot, "ensemble": run_ensemble}

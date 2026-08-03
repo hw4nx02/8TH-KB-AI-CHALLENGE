@@ -34,11 +34,11 @@ notebooks/
 **/.ipynb_checkpoints/
 
 # Internal/local working documents
-CLAUDE.md
+?LAUDE.md
 docs/
 
-# Codex/presentation scratch workspace
-.codex_ppt_work/
+# Presentation scratch workspace
+.*_ppt_work/
 
 # OS/editor temporary files
 ~$*

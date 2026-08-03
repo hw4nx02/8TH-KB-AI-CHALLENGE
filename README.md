@@ -83,7 +83,7 @@ python -m http.server 8899
 `outputs/product_benchmark.json`을 자동으로 읽는다. 파일을 직접 더블클릭해서 열 때는
 브라우저 보안 제한 때문에 JSON 자동 로딩이 막힐 수 있으므로 화면에 `product_benchmark.json`을 드롭하면 된다.
 
-Colab에서 Nemotron 로딩 실패를 숨기지 않으려면:
+실제 페르소나 데이터 로딩 실패를 숨기지 않으려면:
 
 ```bash
 uv run --extra personas fdm benchmark-products \
@@ -129,7 +129,7 @@ uv run python -m streamlit run ui/app.py
 
 ### 성능 — 느리다면 여기부터
 
-RTX 5070 Laptop 8GB + `qwen3:8b` 실측 기준이다.
+로컬 8GB VRAM 환경에서 `qwen3:8b`로 측정한 기준이다.
 
 | 조치 | 효과 | 방법 |
 |---|---|---|
@@ -152,7 +152,7 @@ vLLM 백엔드에서는 `chat_template_kwargs={"enable_thinking": false}` 로 �
 | 역할 | 모델 티어 | 환경변수 |
 |---|---|---|
 | 옹호자·회의론자·페르소나 | 작은 모델 | `FDM_MODEL_SMALL` (기본 `qwen3:8b`) |
-| 심판·단발판정 | 큰 모델 | `FDM_MODEL_JUDGE` (Colab에서 EXAONE 4.0 32B) |
+| 심판·단발판정 | 큰 모델 | `FDM_MODEL_JUDGE` (원격/고성능 백엔드 사용 가능) |
 
 ### 신뢰도 스코어 (`src/fdm/eval/confidence.py`)
 
