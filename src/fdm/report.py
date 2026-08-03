@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .concerns import TIER_BASIS, TIER_CAVEAT, TIER_LABEL, TIER_MARK, TIER_ORDER, type_label
 from .config import OUTPUT_DIR
+from .diagnostics import public_items
 from .eval.benchmark import AblationReport, HoldingReport
 from .eval.simulate import SensitivityRow, SimulationReport
 from .products.schema import Product
@@ -103,12 +104,14 @@ def build_report(
     L.append("\n## 3-1. 주요 위험요인 및 개선권고 (디베이트 근거 기반)")
     for s in sim.segments:
         L.append(f"\n### {s.segment}")
-        if s.top_risks:
+        risks = public_items(s.top_risks)
+        recommendations = public_items(s.top_recommendations)
+        if risks:
             L.append("**위험요인**")
-            L += [f"- {r}" for r in s.top_risks]
-        if s.top_recommendations:
+            L += [f"- {r}" for r in risks]
+        if recommendations:
             L.append("\n**개선권고**")
-            L += [f"- {r}" for r in s.top_recommendations]
+            L += [f"- {r}" for r in recommendations]
         low = [c for c in s.cases if c.needs_review]
         if low:
             L.append(
@@ -123,7 +126,7 @@ def build_report(
     seen: set[str] = set()
     for s in sim.segments:
         for c in s.cases:
-            for e in c.evidence[:2]:
+            for e in public_items(c.evidence)[:2]:
                 if e not in seen:
                     seen.add(e)
                     L.append(f"- {e}")

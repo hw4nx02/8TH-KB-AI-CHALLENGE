@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from fdm.config import OUTPUT_DIR, SETTINGS  # noqa: E402
+from fdm.diagnostics import is_diagnostic_item  # noqa: E402
 from fdm.eval.benchmark import AblationReport, compare_holding_rates  # noqa: E402
 from fdm.eval.simulate import (  # noqa: E402
     SimulationReport,
@@ -58,6 +59,7 @@ CATEGORY_LABELS = {
 }
 LABEL_TO_CATEGORY = {v: k for k, v in CATEGORY_LABELS.items()}
 MODE_OPTIONS = ["single", "debate", "ensemble"]
+DEFAULT_RUN_PRESET = "빠른 검증"
 DEFAULT_PERSONA_SOURCE = "synthetic"
 DEFAULT_PERSONA_LIMIT = 400
 UNKNOWN_STATE = "미정(확인 필요)"
@@ -80,21 +82,6 @@ RISK_COLORS = {
     "판매원칙 위험": "#b91c1c",
     "추가 검증 필요": "#4b5563",
 }
-DIAGNOSTIC_ITEM_PREFIXES = (
-    "LLM JSON 파싱/호출 실패",
-    "일부 시드에서 LLM JSON 파싱/호출 실패",
-    "seed=",
-)
-DIAGNOSTIC_ITEM_MARKERS = (
-    "FDM_LLM_",
-    "FDM_OPENAI_",
-    "FDM_GEMINI_",
-    "generativelanguage.googleapis.com",
-    "openai/chat/completions",
-    "JSON 파싱 실패",
-    "연결 실패:",
-    "호출 실패:",
-)
 CATEGORY_FORM_COPY = {
     "saving": {
         "finance_title": "적금 금리·기간·납입",
@@ -322,15 +309,6 @@ def simulation_dataframe(sim: SimulationReport) -> pd.DataFrame:
             }
             for s in sim.segments
         ]
-    )
-
-
-def is_diagnostic_item(item: str) -> bool:
-    text = item.strip()
-    if not text:
-        return False
-    return text.startswith(DIAGNOSTIC_ITEM_PREFIXES) or any(
-        marker in text for marker in DIAGNOSTIC_ITEM_MARKERS
     )
 
 
@@ -1010,19 +988,31 @@ with tab_run:
             )
 
         st.subheader("검증 실행 설정")
-        preset = st.radio("실행 프리셋", list(PRESET_CONFIGS.keys()), horizontal=True)
+        preset_names = list(PRESET_CONFIGS.keys())
+        default_preset_index = preset_names.index(DEFAULT_RUN_PRESET) if DEFAULT_RUN_PRESET in preset_names else 0
+        preset = st.radio("실행 프리셋", preset_names, index=default_preset_index, horizontal=True)
         cfg = PRESET_CONFIGS[preset]
         st.caption(cfg["purpose"])
+        mode = st.selectbox(
+            "실행 모드",
+            MODE_OPTIONS,
+            index=MODE_OPTIONS.index(str(cfg["mode"])),
+            key=f"run_mode_{preset}",
+        )
+        if mode == "ensemble":
+            st.caption("ensemble은 single과 debate를 함께 실행해 교차확인 신호와 T1(즉시 조치) 계층을 산출합니다.")
+        else:
+            st.warning(
+                f"{mode} 모드는 빠르지만 교차확인이 성립하지 않아 T1(즉시 조치)이 구조적으로 나오지 않습니다."
+            )
         advanced = st.checkbox("고급 설정 조정", value=False)
         if advanced:
-            c1, c2, c3, c4 = st.columns(4)
-            mode = c1.selectbox("실행 모드", MODE_OPTIONS, index=MODE_OPTIONS.index(cfg["mode"]))
-            n_seeds = c2.slider("멀티시드 수", 1, 7, int(cfg["n_seeds"]))
-            personas_per_segment = c3.slider("세그먼트별 페르소나 수", 1, 10, int(cfg["personas_per_segment"]))
-            workers = c4.slider("workers", 1, 8, int(cfg["workers"]))
+            c1, c2, c3 = st.columns(3)
+            n_seeds = c1.slider("멀티시드 수", 1, 7, int(cfg["n_seeds"]))
+            personas_per_segment = c2.slider("세그먼트별 페르소나 수", 1, 10, int(cfg["personas_per_segment"]))
+            workers = c3.slider("workers", 1, 8, int(cfg["workers"]))
             include_sensitivity = st.checkbox("민감도 분석 포함", value=bool(cfg["include_sensitivity"]))
         else:
-            mode = str(cfg["mode"])
             n_seeds = int(cfg["n_seeds"])
             personas_per_segment = int(cfg["personas_per_segment"])
             workers = int(cfg["workers"])

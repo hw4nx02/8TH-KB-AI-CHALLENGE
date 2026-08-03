@@ -47,6 +47,7 @@ class ConsensusResult(BaseModel):
     evidence: list[str] = Field(default_factory=list)
     risks: list[str] = Field(default_factory=list)
     recommendations: list[str] = Field(default_factory=list)
+    diagnostics: list[str] = Field(default_factory=list)
     grounding_doc_ids: list[str] = Field(default_factory=list)
     concerns: list[Concern] = Field(
         default_factory=list,

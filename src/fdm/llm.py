@@ -5,12 +5,15 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
 from .config import ROLE_MODEL, SETTINGS, Settings
+
+RETRYABLE_HTTP_STATUSES = {408, 409, 429, 500, 502, 503, 504}
 
 
 @dataclass
@@ -95,16 +98,14 @@ class LLMClient:
 
         url = f"{self.s.base_url.rstrip('/')}/chat/completions"
         try:
-            r = httpx.post(url, json=payload, headers=self._headers(), timeout=self.s.timeout)
-            r.raise_for_status()
+            r = self._post_with_retry(url, payload, headers=self._headers())
         except httpx.HTTPStatusError as e:
             optional_keys = ("response_format", "chat_template_kwargs", "reasoning_effort")
-            if any(k in payload for k in optional_keys):
+            if e.response.status_code not in RETRYABLE_HTTP_STATUSES and any(k in payload for k in optional_keys):
                 for key in optional_keys:
                     payload.pop(key, None)
                 try:
-                    r = httpx.post(url, json=payload, headers=self._headers(), timeout=self.s.timeout)
-                    r.raise_for_status()
+                    r = self._post_with_retry(url, payload, headers=self._headers())
                 except httpx.HTTPError:
                     raise LLMError(f"{url} 호출 실패: {e} / {e.response.text[:300]}") from e
             else:
@@ -119,6 +120,42 @@ class LLMClient:
         data = r.json()
         text = _extract_chat_text(data)
         return LLMResponse(text=_strip_think(text), model=model, raw=data)
+
+    def _post_with_retry(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> httpx.Response:
+        attempts = max(1, self.s.llm_retries + 1)
+        last_error: httpx.HTTPError | None = None
+        for attempt in range(attempts):
+            try:
+                r = httpx.post(url, json=payload, headers=headers or {}, timeout=self.s.timeout)
+                r.raise_for_status()
+                return r
+            except httpx.HTTPStatusError as e:
+                last_error = e
+                if e.response.status_code not in RETRYABLE_HTTP_STATUSES or attempt == attempts - 1:
+                    raise
+                self._sleep_before_retry(e, attempt)
+            except httpx.TimeoutException as e:
+                last_error = e
+                if attempt == attempts - 1:
+                    raise
+                self._sleep_before_retry(e, attempt)
+        assert last_error is not None
+        raise last_error
+
+    def _sleep_before_retry(self, error: httpx.HTTPError, attempt: int) -> None:
+        retry_after = _retry_after_seconds(error)
+        if retry_after is None:
+            retry_after = min(
+                self.s.llm_retry_max_seconds,
+                self.s.llm_retry_base_seconds * (2**attempt),
+            )
+        time.sleep(max(0.0, retry_after))
 
     def _chat_ollama_native(
         self,
@@ -321,6 +358,19 @@ def _json_preview(value: Any, limit: int = 500) -> str:
     except TypeError:
         text = repr(value)
     return text[:limit]
+
+
+def _retry_after_seconds(error: httpx.HTTPError) -> float | None:
+    if not isinstance(error, httpx.HTTPStatusError):
+        return None
+    raw = error.response.headers.get("retry-after")
+    if not raw:
+        return None
+    try:
+        value = float(raw)
+    except ValueError:
+        return None
+    return max(0.0, value)
 
 
 _THINK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)

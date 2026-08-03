@@ -16,7 +16,7 @@ from fdm.agents.schema import (
 from fdm.config import SETTINGS, Settings
 from fdm.eval.benchmark import load_cases, run_ablation
 from fdm.eval.confidence import aggregate
-from fdm.eval.simulate import VariantSpec, apply_variant, load_segments, sensitivity_analysis, simulate_product
+from fdm.eval.simulate import VariantSpec, apply_variant, load_segments, run_case, sensitivity_analysis, simulate_product
 from fdm.llm import LLMClient, extract_json
 from fdm.personas.loader import filter_segment, load_personas, sample_cohort
 from fdm.products.schema import load_all_products, load_product
@@ -214,6 +214,66 @@ def test_chat_raises_llmerror_when_response_has_no_content(monkeypatch):
 
     with pytest.raises(LLMError, match="응답 본문 없음"):
         client.chat(role="judge", system="s", user="u")
+
+
+def test_chat_retries_transient_rate_limit(monkeypatch):
+    import httpx
+
+    settings = Settings(
+        backend="gemini",
+        llm_api_key="token",
+        model_small="gemini-3.6-flash",
+        model_judge="gemini-3.6-flash",
+        timeout=1,
+        llm_retries=2,
+        llm_retry_base_seconds=0.01,
+    )
+    client = LLMClient(settings)
+    calls = 0
+    sleeps: list[float] = []
+
+    class FakeResponse:
+        def __init__(self, status_code: int, payload: dict | None = None):
+            self.status_code = status_code
+            self.payload = payload or {}
+            self.request = httpx.Request("POST", "https://example.test/chat/completions")
+            self.response = httpx.Response(
+                status_code,
+                request=self.request,
+                headers={"retry-after": "0.01"} if status_code == 429 else {},
+                text="rate limited",
+            )
+
+        @property
+        def text(self):
+            return self.response.text
+
+        @property
+        def headers(self):
+            return self.response.headers
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise httpx.HTTPStatusError("rate limited", request=self.request, response=self.response)
+
+        def json(self):
+            return self.payload
+
+    def fake_post(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return FakeResponse(429)
+        return FakeResponse(200, {"choices": [{"message": {"content": "ok after retry"}}]})
+
+    monkeypatch.setattr("fdm.llm.httpx.post", fake_post)
+    monkeypatch.setattr("fdm.llm.time.sleep", lambda seconds: sleeps.append(seconds))
+
+    res = client.chat(role="judge", system="s", user="u")
+
+    assert res.text == "ok after retry"
+    assert calls == 2
+    assert sleeps == [0.01]
 
 
 def test_chat_json_requires_keys_and_repairs(monkeypatch):
@@ -623,6 +683,30 @@ def test_sensitivity_analysis_accepts_ui_runtime_inputs(personas):
     assert {r.segment for r in rows} == {segments[0].name}
 
 
+def test_llm_failures_go_to_diagnostics_not_business_fields(monkeypatch, personas):
+    from fdm.eval import simulate as simulate_mod
+    from fdm.llm import LLMError
+
+    def fake_runner(*args, **kwargs):
+        raise LLMError("429 Too Many Requests")
+
+    monkeypatch.setitem(simulate_mod.RUNNERS, "single", fake_runner)
+
+    cr = run_case(
+        load_product("01_youth_step_saving"),
+        personas[0],
+        segment="테스트",
+        n_seeds=1,
+        mode="single",
+    )
+
+    assert cr.n_runs == 0
+    assert cr.needs_review is True
+    assert cr.risks == []
+    assert cr.recommendations == []
+    assert any("LLM 호출/응답 실패" in item for item in cr.diagnostics)
+
+
 # ------------------------------------------------------------------ 애블레이션
 def test_benchmark_cases_are_valid():
     cases = load_cases()
@@ -816,6 +900,33 @@ def test_report_shows_tiers_and_flags_missing_cross_check():
     assert "즉시 조치" in text and "접어두기" in text
     # 단독 실행에서 교차확인이 불가능하다는 사실을 숨기지 않는다
     assert "교차확인이 성립하지 않는다" in text
+
+
+def test_report_hides_llm_diagnostics_from_business_sections():
+    product = load_product("01_youth_step_saving")
+    sim = simulate_product(product, n_seeds=1, k_personas=1, mode="single")
+    seg = sim.segments[0].model_copy(
+        update={
+            "top_risks": [
+                "LLM JSON 파싱/호출 실패로 판정 불가",
+                "seed=0: https://generativelanguage.googleapis.com/v1beta/openai/chat/completions 호출 실패: 429",
+                "최고금리 위주 표시로 인한 오인",
+            ],
+            "top_recommendations": [
+                "해당 상품-페르소나 케이스를 낮은 workers 또는 작은 seeds로 재실행",
+                "최고금리 표기 시 기본금리와 우대조건을 함께 표시",
+            ],
+        }
+    )
+    sim = sim.model_copy(update={"segments": [seg] + sim.segments[1:]})
+
+    text = build_report(product, sim)
+
+    assert "LLM JSON 파싱" not in text
+    assert "generativelanguage.googleapis.com" not in text
+    assert "낮은 workers" not in text
+    assert "최고금리 위주 표시로 인한 오인" in text
+    assert "최고금리 표기 시 기본금리와 우대조건을 함께 표시" in text
 
 
 def test_tier_basis_carries_sample_size_caveat():

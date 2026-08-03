@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from ..agents.debate import DebateConfig, run_debate, run_ensemble, single_shot
 from ..agents.schema import Concern, DebateResult, group_by_tier, merge_concerns
 from ..config import DATA_DIR, OUTPUT_DIR
+from ..diagnostics import public_items
 from ..llm import LLMClient, LLMError
 from ..personas.loader import (
     PersonaSource,
@@ -58,6 +59,7 @@ class SegmentResult(BaseModel):
     low_confidence_ratio: float
     top_risks: list[str] = Field(default_factory=list)
     top_recommendations: list[str] = Field(default_factory=list)
+    diagnostics: list[str] = Field(default_factory=list)
     cases: list[ConsensusResult] = Field(default_factory=list)
     top_concerns: list[Concern] = Field(
         default_factory=list,
@@ -167,8 +169,7 @@ def run_case(
             confidence=0.0,
             confidence_level="low",
             needs_review=True,
-            risks=["LLM JSON 파싱/호출 실패로 판정 불가"] + failures[:2],
-            recommendations=["해당 상품-페르소나 케이스를 낮은 workers 또는 작은 seeds로 재실행"],
+            diagnostics=["LLM 호출/응답 실패로 판정 불가"] + failures[:2],
         )
     cr = aggregate(runs)
     if failures:
@@ -177,9 +178,7 @@ def run_case(
                 "confidence": min(cr.confidence, 0.54),
                 "confidence_level": "low",
                 "needs_review": True,
-                "risks": cr.risks + ["일부 시드에서 LLM JSON 파싱/호출 실패"] + failures[:2],
-                "recommendations": cr.recommendations
-                + ["실패한 시드는 추가 재실행 후 결과 안정성 확인"],
+                "diagnostics": cr.diagnostics + ["일부 시드에서 LLM 호출/응답 실패"] + failures[:2],
             }
         )
     return cr
@@ -279,6 +278,7 @@ def simulate_product(
                 low_confidence_ratio=round(sum(1 for c in crs if c.needs_review) / n, 3),
                 top_risks=_dedup([r for c in crs for r in c.risks])[:5],
                 top_recommendations=_dedup([r for c in crs for r in c.recommendations])[:5],
+                diagnostics=_dedup([d for c in crs for d in c.diagnostics])[:5],
                 cases=crs,
                 top_concerns=_segment_concerns(crs),
             )
@@ -307,7 +307,7 @@ def simulate_product(
 
 
 def _dedup(items: list[str]) -> list[str]:
-    counts = Counter(i.strip() for i in items if i and i.strip())
+    counts = Counter(public_items(items))
     return [k for k, _ in counts.most_common()]
 
 

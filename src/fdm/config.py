@@ -90,6 +90,13 @@ class Settings:
     model_judge: str = field(default_factory=lambda: _env("FDM_MODEL_JUDGE", _default_model("judge")))
     timeout: float = field(default_factory=lambda: float(_env("FDM_TIMEOUT", "180")))
     max_tokens: int = field(default_factory=lambda: int(_env("FDM_MAX_TOKENS", "1200")))
+    llm_retries: int = field(default_factory=lambda: int(_env("FDM_LLM_RETRIES", "3")))
+    llm_retry_base_seconds: float = field(
+        default_factory=lambda: float(_env("FDM_LLM_RETRY_BASE_SECONDS", "2.0"))
+    )
+    llm_retry_max_seconds: float = field(
+        default_factory=lambda: float(_env("FDM_LLM_RETRY_MAX_SECONDS", "30.0"))
+    )
     gemini_reasoning_effort: str = field(
         default_factory=lambda: _env("FDM_GEMINI_REASONING_EFFORT", "low")
     )

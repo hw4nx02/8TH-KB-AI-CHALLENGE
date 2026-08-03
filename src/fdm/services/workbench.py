@@ -96,8 +96,8 @@ class ProductIssue:
 
 PRESET_CONFIGS: dict[str, dict[str, Any]] = {
     "빠른 검증": {
-        "purpose": "상품 초안의 큰 위험만 빠르게 확인",
-        "mode": "single",
+        "purpose": "교차확인을 포함한 최소 실행으로 큰 위험을 빠르게 확인",
+        "mode": "ensemble",
         "n_seeds": 1,
         "personas_per_segment": 2,
         "workers": 2,
