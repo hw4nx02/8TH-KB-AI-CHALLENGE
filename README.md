@@ -7,8 +7,6 @@
 - 차별점: 적대적 3진영 디베이트로 LLM 순응 편향·환각을 억제하고, **멀티시드 신뢰도 스코어**와
   **외부 벤치마크 대조(조정례·KOSIS)** 로 정확성을 실증한다.
 
-> 📘 코드가 어떻게 돌아가는지 파일·함수 단위로 따라 읽는 해설: **[docs/WALKTHROUGH.md](docs/WALKTHROUGH.md)**
-
 ## 1. 빠른 시작
 
 ```bash
@@ -207,12 +205,7 @@ uv sync --extra personas
 합성 폴백으로 넘어가지 않고 에러를 낸다. 각 시뮬레이션/리포트에는 페르소나 출처별 건수
 (`Nemotron`, `synthetic-fallback`)가 저장된다.
 
-## 5. Colab 전환
-
-`notebooks/colab_vllm.ipynb` — vLLM으로 큰 모델(EXAONE 4.0 32B 등)을 띄우고
-`FDM_BACKEND=vllm`으로 같은 코드를 그대로 실행한다.
-
-## 6. 한계 (정직한 고지)
+## 5. 한계 (정직한 고지)
 
 - 합성 페르소나는 개별 변수 분포는 실제와 정합하나 **변수 조합(joint distribution) 정합성은 검증되지 않았다.**
   결과는 **탐색·경보용**이며 확정 근거는 실데이터·조정례를 병용해야 한다.
@@ -221,7 +214,7 @@ uv sync --extra personas
 - `data/benchmark/dispute_cases.json`의 사례는 실제 조정결정례 원문이 아닌 재구성 샘플이다.
   제출·평가 단계에서는 fss.or.kr 원문으로 교체해야 하며, 그 전까지의 적중률 수치는 잠정치다.
 
-## 7. 구조
+## 6. 구조
 
 ```
 src/fdm/

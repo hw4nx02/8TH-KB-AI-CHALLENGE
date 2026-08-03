@@ -26,10 +26,16 @@ data/workbench.sqlite3-*
 # Downloaded/generated draft data
 data/personas/*.jsonl
 data/products/_finlife_drafts/
+*.bak
 
-# Notebook checkpoints
+# Local notebooks and checkpoints
+notebooks/
 .ipynb_checkpoints/
 **/.ipynb_checkpoints/
+
+# Internal/local working documents
+CLAUDE.md
+docs/
 
 # Codex/presentation scratch workspace
 .codex_ppt_work/
@@ -40,4 +46,3 @@ data/products/_finlife_drafts/
 Thumbs.db
 desktop.ini
 .DS_Store
-docs/

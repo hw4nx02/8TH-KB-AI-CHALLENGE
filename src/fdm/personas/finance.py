@@ -5,7 +5,7 @@ Nemotron-Personas-Korea에는 정밀한 소득/자산/부채 수치가 없으므
 로그정규 근사로 합성값을 뽑는다. persona_id 해시를 시드로 써서 재현 가능하다.
 
 주의: 개별 수치는 실제 개인이 아니며, 변수 간 결합분포(joint distribution) 정합성은
-검증되지 않았다. 결과는 '탐색·경보용'으로만 사용한다 (CLAUDE.md §6).
+검증되지 않았다. 결과는 '탐색·경보용'으로만 사용한다.
 """
 
 from __future__ import annotations
