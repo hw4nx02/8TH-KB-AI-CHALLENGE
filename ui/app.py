@@ -1136,8 +1136,8 @@ with tab_result:
                 f"최저 세그먼트: {worst.segment} ({worst.mean_intent}점)"
             )
 
-        tab_tier_view, tab_summary_view, tab_case_view, tab_raw_view = st.tabs(
-            ["우려 계층", "세그먼트 요약", "케이스 상세", "원본 JSON"]
+        tab_tier_view, tab_summary_view, tab_case_view = st.tabs(
+            ["우려 계층", "세그먼트 요약", "케이스 상세"]
         )
 
         with tab_tier_view:
@@ -1256,10 +1256,6 @@ with tab_result:
                         st.markdown("**개선권고**")
                         st.write(case.recommendations or "개선권고 없음")
                         st.caption("인용 문서 ID: " + (", ".join(case.grounding_doc_ids) or "없음"))
-
-        with tab_raw_view:
-            st.json(sim.model_dump(mode="json"))
-
 with tab_scenario:
     run = selected_run(store)
     if run is None or run.status != "완료":
